@@ -89,7 +89,6 @@ func restAPI(request rest.Request) (*rest.Response, error) {
 	// Build the HTTP request object.
 	if len(request.QueryParams) != 0 {
 		// Add parameters to the URL
-		request.BaseURL += "?"
 		urlp := url.Values{}
 		arrayRe := regexp.MustCompile(`^\[\d+\](.*)$`)
 		for key, value := range request.QueryParams {
@@ -107,8 +106,20 @@ func restAPI(request rest.Request) (*rest.Response, error) {
 			}
 			urlp.Add(key, value)
 		}
-		urlpstr := urlp.Encode()
-		request.BaseURL += urlpstr
+	}
+
+	urlpstr := urlp.Encode()
+
+	switch request.Method {
+	case "GET":
+		request.BaseURL += "?" + urlpstr
+	default:
+		// Pleroma at least needs the API parameters in the body rather than
+		// the URL for `POST` requests.  Which is fair according to
+		// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#form-submission-2
+		// which suggests that `GET` requests should have URL parameters
+		// and `POST` requests should have the encoded parameters in the body.
+		request.Body = []byte(urlpstr)
 	}
 
 	req, err := http.NewRequest(string(request.Method), request.BaseURL, bytes.NewBuffer(request.Body))
@@ -120,8 +131,11 @@ func restAPI(request rest.Request) (*rest.Response, error) {
 		req.Header.Set(key, value)
 	}
 	_, exists := req.Header["Content-Type"]
+
+	// Default to `application/x-www-form-urlencoded` because that's more
+	// commonly accepted for the masto-compatible APIs (GotoSocial, Pleroma).
 	if len(request.Body) > 0 && !exists {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 
 	// Build the HTTP client and make the request.
