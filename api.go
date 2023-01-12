@@ -84,6 +84,8 @@ func parseLink(links []string) (*apiLinks, error) {
 // restAPI actually does the HTTP query
 // It is a copy of rest.API with better handling of parameters with multiple values
 func restAPI(request rest.Request) (*rest.Response, error) {
+	var urlpstr string
+
 	c := &rest.Client{HTTPClient: http.DefaultClient}
 
 	// Build the HTTP request object.
@@ -106,9 +108,8 @@ func restAPI(request rest.Request) (*rest.Response, error) {
 			}
 			urlp.Add(key, value)
 		}
+		urlpstr = urlp.Encode()
 	}
-
-	urlpstr := urlp.Encode()
 
 	switch request.Method {
 	case "GET":
@@ -194,6 +195,21 @@ func (mc *Client) prepareRequest(target string, method rest.Method, params apiCa
 		Method:      method,
 		QueryParams: params,
 	}
+
+	// Everything should be defaulted to `application/x-www-form-urlencoded`
+	// but if we get a JSON `POST` with `Content-Type: application/json`,
+	// the body needs to be the JSON serialisation of the parameters otherwise
+	// masto-compatible APIs (Pleroma, GotoSocial) won't parse the parameters.
+	ct, ok := hdrs["Content-Type"]
+
+	if method == "POST" && ok && ct == "application/json" {
+		b, err := json.Marshal(params)
+		if err != nil {
+			return req, err
+		}
+		req.Body = b
+	}
+
 	return req, nil
 }
 
